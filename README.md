@@ -164,10 +164,10 @@ The application is configured using environment variables
 
 - `PORT` - the port that the database's web server will listen on. Default 5984.
 - `INDEXES` - the number of secondary indexes created. Default 3.
+- `READONLY` - set this to only allow read-only operations. Write operations will receive a 403 response. This is handy for configuring some nodes to point to PostgreSQL read replicas.
 
 ## To do
 
-- READONLY mode - to allow read-only replicas
 - PostgreSQL connection parameter
 - offset (to go with limit)
 

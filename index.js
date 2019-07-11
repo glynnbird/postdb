@@ -4,8 +4,10 @@ const defaults = require('./lib/defaults.js')
 const pkg = require('./package.json')
 const debug = require('debug')(pkg.name)
 const app = express()
-const port = process.env.PORT | defaults.port
-const indexes = process.env.INDEXES | defaults.indexes
+const port = process.env.PORT || defaults.port
+const indexes = process.env.INDEXES || defaults.indexes
+const readOnlyFlag = process.env.READONLY || defaults.readonly
+const readOnlyMode = readOnlyFlag ? true : false
 
 // utilities library
 const utils = require('./lib/utils.js')
@@ -16,6 +18,12 @@ const kuuid = require('kuuid')
 // JSON parsing middleware
 const bodyParser = require('body-parser')
 app.use(bodyParser.json())
+
+// readonly middleware
+const readOnlyMiddleware = require('./lib/readonly.js')(readOnlyMode)
+if (readOnlyMode) {
+  console.log('NOTE: readonly mode')
+}
 
 // PostgreSQL Client
 const { Client } = require('pg')
@@ -161,7 +169,7 @@ app.get('/:db/_all_docs', async (req, res) => {
   const databaseName = req.params.db
   const includeDocs = req.query.include_docs === 'true'
   let startkey, endkey, limit
-  console.log(req.query)
+
   try {
     startkey = req.query.startkey ? JSON.parse(req.query.startkey) : undefined
     endkey = req.query.endkey ? JSON.parse(req.query.endkey) : undefined
@@ -253,7 +261,7 @@ app.get('/:db/:id', async (req, res) => {
 
 // PUT /db/doc
 // add a doc with a known id
-app.put('/:db/:id', async (req, res) => {
+app.put('/:db/:id', readOnlyMiddleware, async (req, res) => {
   const databaseName = req.params.db
   if (!utils.validDatabaseName(databaseName)) {
     return sendError(res, 400, 'Invalid database name')
@@ -277,7 +285,7 @@ app.put('/:db/:id', async (req, res) => {
 
 // DELETE /db/doc
 // delete a doc with a known id
-app.delete('/:db/:id', async (req, res) => {
+app.delete('/:db/:id', readOnlyMiddleware, async (req, res) => {
   const databaseName = req.params.db
   if (!utils.validDatabaseName(databaseName)) {
     return sendError(res, 400, 'Invalid database name')
@@ -298,7 +306,7 @@ app.delete('/:db/:id', async (req, res) => {
 
 // POST /db
 // add a doc without an id
-app.post('/:db', async (req, res) => {
+app.post('/:db', readOnlyMiddleware, async (req, res) => {
   const databaseName = req.params.db
   if (!utils.validDatabaseName(databaseName)) {
     return sendError(res, 400, 'Invalid database name')
@@ -316,7 +324,7 @@ app.post('/:db', async (req, res) => {
 
 // PUT /db
 // create a database
-app.put('/:db', async (req, res) => {
+app.put('/:db', readOnlyMiddleware, async (req, res) => {
   const databaseName = req.params.db
   if (!utils.validDatabaseName(databaseName)) {
     return sendError(res, 400, 'Invalid database name')
@@ -346,7 +354,7 @@ app.put('/:db', async (req, res) => {
 
 // DELETE /db
 // delete a database (table)
-app.delete('/:db', async (req, res) => {
+app.delete('/:db', readOnlyMiddleware, async (req, res) => {
   const databaseName = req.params.db
   if (!utils.validDatabaseName(databaseName)) {
     return sendError(res, 400, 'Invalid database name')
