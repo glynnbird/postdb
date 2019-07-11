@@ -1,0 +1,36 @@
+{
+  "name": "postdb",
+  "version": "1.0.0",
+  "description": "A CouchDB-like interface on top of PostgreSQL",
+  "main": "index.js",
+  "scripts": {
+    "standard": "standard --fix",
+    "start": "node index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/glynnbird/postdb.git"
+  },
+  "keywords": [
+    "CouchDB",
+    "PostgreSQL",
+    "REST"
+  ],
+  "author": "Glynn Bird <glynn.bird@gmail.com>",
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/glynnbird/postdb/issues"
+  },
+  "homepage": "https://github.com/glynnbird/postdb#readme",
+  "dependencies": {
+    "body-parser": "^1.19.0",
+    "debug": "^4.1.1",
+    "express": "^4.17.1",
+    "kuuid": "^0.4.0",
+    "pg": "^7.11.0"
+  },
+  "devDependencies": {
+    "standard": "^13.0.0"
+  }
+}
