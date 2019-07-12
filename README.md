@@ -6,7 +6,7 @@
 - Create/Delete database API
 - Insert/Update/Delete document API, without requiring revision tokens.
 - Bulk Insert/Update/Delete API.
-- Fetch all documentes or a range using the primary index.
+- Fetch all documents or a range using the primary index.
 - Fetch documents by key or range of keys using one of three (by default) secondary indexes.
 
 It does not implement CouchDB's MVCC, Design Documents, attachments, replication, changes feed, MapReduce, "Mango" search or any other CouchDB feature.
