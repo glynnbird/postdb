@@ -188,6 +188,29 @@ app.get('/_uuids', (req, res) => {
   res.send(obj)
 })
 
+// POST /db/_purge
+// totally delete documents
+app.post('/:db/_purge', async (req, res) => {
+  const databaseName = req.params.db
+  if (!utils.validDatabaseName(databaseName)) {
+    return sendError(res, 400, 'Invalid database name')
+  }
+
+  try {
+    await client.query('BEGIN')
+    const keys = Object.keys(req.body)
+    for (var i = 0; i < keys.length; i++) {
+      const sql = 'DELETE FROM ' + databaseName + ' WHERE id=$1'
+      await client.query(sql, [keys[i]])
+    }
+    await client.query('COMMIT')
+    res.send({ purge_seq: null, purged: req.body })
+  } catch (e) {
+    debug(e)
+    sendError(res, 404, 'Could not retrieve databases')
+  }
+})
+
 // GET /db/changes
 // get a list of changes
 app.get('/:db/_changes', async (req, res) => {
