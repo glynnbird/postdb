@@ -13,6 +13,8 @@ It does not implement CouchDB's MVCC, Design Documents, attachments, replication
 
 It does however provide a "consistent" data store where the documents and secondary indexes are in lock-step. Documents are limited to 100KB in size.
 
+![schmeatic](postdb.png)
+
 ## Running 
 
 Download this project and install the dependencies to run it on your machine:
