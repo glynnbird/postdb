@@ -60,7 +60,7 @@ const prepareInsertSQL = (databaseName, id, doc) => {
       delete smallDoc[key]
     }
   })
-  const values = [id, smallDoc, kuuid.prefix(), 'FALSE']
+  const values = [id, smallDoc, kuuid.prefixms(), 'FALSE']
   for (var i = 1; i <= indexes; i++) {
     fields.push('i' + i)
     replacements.push('$' + (i + 4))
@@ -74,13 +74,12 @@ const prepareInsertSQL = (databaseName, id, doc) => {
     j++
   })
   const sql = 'INSERT INTO ' + databaseName + ' (' + fields.join(',') + ') VALUES (' + replacements.join(',') + ') ON CONFLICT (id) DO UPDATE SET ' + pairs.join(',') + ' WHERE ' + databaseName + '.id = $1'
-  console.log({ sql: sql, values: values })
   return { sql: sql, values: values }
 }
 
 // delete SQL
 const prepareDeleteSQL = (databaseName, id) => {
-  const ts = kuuid.prefix()
+  const ts = kuuid.prefixms()
   let sql = 'UPDATE ' + databaseName + ' SET deleted=TRUE,ts=$1'
   for (var i = 0; i < indexes; i++) {
     sql += ' ,i' + (i + 1) + '=\'\''
@@ -237,12 +236,11 @@ app.get('/:db/_changes', async (req, res) => {
   if (includeDocs) {
     fields = '*'
   }
-  let sql = 'SELECT ' + fields + ' FROM ' + databaseName + ' WHERE ts > $1'
+  let sql = 'SELECT ' + fields + ' FROM ' + databaseName + ' WHERE ts >= $1'
   sql += ' ORDER BY ts'
   if (limit) {
     sql += ' LIMIT ' + limit
   }
-  console.log(sql)
   try {
     const data = await client.query(sql, [since])
     const obj = {
