@@ -599,6 +599,11 @@ app.get('/', (req, res) => {
   res.send(obj)
 })
 
+// backstop route
+app.use(function (req, res) {
+  res.status(404).send({ error: 'missing' })
+})
+
 // main
 const main = async () => {
   try {
