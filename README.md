@@ -108,6 +108,19 @@ Parameters:
 - `limit` - the number of documents to return   (default: 100)
 - `offset` - the offset into the result set (default: 0)
 
+### Get changes feed - GET /db/_changes
+
+```sh
+$ curl -X GET http://localhost:5984/mydb/_changes_
+{"last_seq":"001hluy4","results":[{"changes":[{"rev":"0-1"}],"id":"001hluy43gHHub3XakCv0Mt4DL0LpMRr","seq":"001hluy4"},{"changes":[{"rev":"0-1"}],"id":"001hluy41gCxKV2lM6oV1eaRTp2apBWS","seq":"001hluy4"}}
+```
+
+Parameters:
+
+- `since` - return changes after a known point. Default `0`
+- `include_docs` - if `true` returns document body too. Default `false`
+- `limit` - the number of documents to return.
+
 ### Bulk operations - POST /db/_bulk_docs
 
 ```sh

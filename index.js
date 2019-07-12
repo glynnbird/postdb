@@ -52,18 +52,18 @@ const sendError = (res, statusCode, str) => {
 
 // prepare SQL statement
 const prepareInsertSQL = (databaseName, id, doc) => {
-  const fields = ['id', 'json']
-  const replacements = ['$1', '$2']
+  const fields = ['id', 'json', 'ts']
+  const replacements = ['$1', '$2', '$3']
   const smallDoc = JSON.parse(JSON.stringify(doc))
   Object.keys(smallDoc).map((key) => {
     if (key.startsWith('_')) {
       delete smallDoc[key]
     }
   })
-  const values = [id, smallDoc]
+  const values = [id, smallDoc, kuuid.prefix()]
   for (var i = 1; i <= indexes; i++) {
     fields.push('i' + i)
-    replacements.push('$' + (i + 2))
+    replacements.push('$' + (i + 3))
     values.push(doc['_i' + i] ? doc['_i' + i] : '')
   }
   const pairs = []
@@ -74,6 +74,7 @@ const prepareInsertSQL = (databaseName, id, doc) => {
     j++
   })
   const sql = 'INSERT INTO ' + databaseName + ' (' + fields.join(',') + ') VALUES (' + replacements.join(',') + ') ON CONFLICT (id) DO UPDATE SET ' + pairs.join(',') + ' WHERE ' + databaseName + '.id = $1'
+  console.log({ sql: sql, values: values })
   return { sql: sql, values: values }
 }
 
@@ -167,7 +168,7 @@ app.get('/_all_dbs', async (req, res) => {
 })
 
 // GET /db/_all_dbs
-// get a list of databases (tables)
+// get a list of unique ids 
 app.get('/_uuids', (req, res) => {
   const count = req.query.count ? JSON.parse(req.query.count) : 1
   if (count < 1 || count > 100) {
@@ -180,6 +181,73 @@ app.get('/_uuids', (req, res) => {
     obj.uuids.push(kuuid.id())
   }
   res.send(obj)
+})
+
+// GET /db/changes
+// get a list of changes 
+app.get('/:db/_changes', async (req, res) => {
+  const databaseName = req.params.db
+  if (!utils.validDatabaseName(databaseName)) {
+    return sendError(res, 400, 'Invalid database name')
+  }
+  
+  // parameter munging
+  const since = req.query.since ? req.query.since : '0'
+  const includeDocs = req.query.include_docs === 'true'
+  let limit
+  try {
+    limit = req.query.limit ? Number.parseInt(req.query.limit) : null
+  } catch(e) {
+    return sendError(res, 400, 'Invalid limit parameter')
+  }
+  if (limit && (typeof limit !== 'number' || limit < 1)) {
+    return sendError(res, 400, 'Invalid limit parameter')
+  }
+
+  // do query
+  let fields = 'id,ts'
+  if (includeDocs) {
+    fields = '*'
+  }
+  let sql = 'SELECT ' + fields + ' FROM ' + databaseName + ' WHERE ts > $1'
+  sql += ' ORDER BY ts'
+  if (limit) {
+    sql += ' LIMIT ' + limit
+  }
+  console.log(sql)
+  try {
+    const data = await client.query(sql, [since])
+    const obj = {
+      last_seq: '',
+      results: []
+    }
+    let lastSeq = since
+    for (var i in data.rows) {
+      const row = data.rows[i]
+      const doc = row.json ? row.json : {}
+      doc._id = row.id
+      doc._rev = '0-1'
+
+      const thisobj = {
+        changes: [ { rev: '0-1'}],
+        id: row.id,
+        seq: row.ts
+      }
+      if (includeDocs) {
+        for (i = 1; i <= indexes; i++) {
+          doc['_i' + i] = row['i' + i]
+        }
+        thisobj.doc = doc
+      }
+      lastSeq = row.ts
+      obj.results.push(thisobj)
+    }
+    obj.last_seq = lastSeq
+    res.send(obj)
+  } catch(e) {
+    debug(e)
+    sendError(res, 500, 'Could not fetch changes feed')
+  }
 })
 
 // GET /db/_query
@@ -430,21 +498,27 @@ app.put('/:db', readOnlyMiddleware, async (req, res) => {
     return sendError(res, 400, 'Invalid database name')
   }
   debug('Creating database - ' + databaseName)
-  const fields = ['id VARCHAR(255) PRIMARY KEY', 'json json NOT NULL']
+  const fields = ['id VARCHAR(255) PRIMARY KEY', 'json json NOT NULL', 'ts VARCHAR(8) NOT NULL']
   for (var i = 1; i <= indexes; i++) {
     fields.push('i' + i + ' VARCHAR(100)')
   }
   try {
-    const sql = 'CREATE TABLE IF NOT EXISTS ' + databaseName + ' (' + fields.join(',') + ')'
+    let sql = 'CREATE TABLE IF NOT EXISTS ' + databaseName + ' (' + fields.join(',') + ')'
     debug(sql)
+    await client.query('BEGIN')
     await client.query(sql)
     for (i = 1; i <= indexes; i++) {
       const field = 'i' + i
       const indexName = databaseName + '_' + field
-      const sql = 'CREATE INDEX ' + indexName + ' ON ' + databaseName + '(' + field + ')'
+      sql = 'CREATE INDEX ' + indexName + ' ON ' + databaseName + '(' + field + ')'
       debug(sql)
       await client.query(sql)
     }
+    const indexName = databaseName + '__ts'
+    sql = 'CREATE INDEX ' + indexName + ' ON ' + databaseName + '(ts)'
+    debug(sql)
+    await client.query(sql)
+    await client.query('COMMIT')
     res.status(201).send({ ok: true })
   } catch (e) {
     debug(e)
