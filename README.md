@@ -9,7 +9,7 @@
 - Fetch all documents or a range using the primary index.
 - Fetch documents by key or range of keys using one of three (by default) secondary indexes.
 
-It does not implement CouchDB's MVCC, Design Documents, attachments, replication, changes feed, MapReduce, "Mango" search or any other CouchDB feature.
+It does not implement CouchDB's MVCC, Design Documents, attachments, replication, MapReduce, "Mango" search or any other CouchDB feature.
 
 It does however provide a "consistent" data store where the documents and secondary indexes are in lock-step. Documents are limited to 100KB in size.
 
