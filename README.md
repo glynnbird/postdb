@@ -106,6 +106,16 @@ Parameters:
 - `limit` - the number of documents to return   (default: 100)
 - `offset` - the offset into the result set (default: 0)
 
+### Bulk operations - POST /db/_bulk_docs
+
+```sh
+$ curl -X POST \
+       -H 'Content-type: application/json' \
+       -d '{"docs":[{"x": 2, "y": true, "z": "bear"},{"_id":"abc","_deleted":true}]}' \
+       http://localhost:5984/mydb/_bulk_docs
+[{"ok":true,"id":"001hlstC1aW4vf189ZLf2xZ9Rq4LriwV","rev":"0-1"},{"ok":true,"id":"abc","rev":"0-1"}]
+```
+
 ### Delete a document - DELETE /db/id
 
 ```sh

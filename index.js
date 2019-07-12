@@ -1,24 +1,20 @@
+// modules and libraries
 const express = require('express')
-
 const defaults = require('./lib/defaults.js')
+const utils = require('./lib/utils.js')
 const pkg = require('./package.json')
 const debug = require('debug')(pkg.name)
 const app = express()
 const basicAuth = require('express-basic-auth')
+const kuuid = require('kuuid')
 
 // incoming environment variables
 const port = process.env.PORT || defaults.port
 const indexes = process.env.INDEXES || defaults.indexes
 const readOnlyFlag = process.env.READONLY || defaults.readonly
-const readOnlyMode = readOnlyFlag ? true : false
+const readOnlyMode = !!readOnlyFlag
 const username = process.env.USERNAME || defaults.username
 const password = process.env.PASSWORD || defaults.password
-
-// utilities library
-const utils = require('./lib/utils.js')
-
-// id generator
-const kuuid = require('kuuid')
 
 // JSON parsing middleware
 const bodyParser = require('body-parser')
@@ -29,7 +25,7 @@ if (username && password) {
   console.log('NOTE: authentication mode')
   const obj = {}
   obj[username] = password
-  app.use(basicAuth({ users: obj}))
+  app.use(basicAuth({ users: obj }))
 }
 
 // readonly middleware
@@ -47,7 +43,8 @@ const sendError = (res, statusCode, str) => {
   res.status(statusCode).send({ error: str })
 }
 
-const prepareSQL = (databaseName, id, doc) => {
+// prepare SQL statement
+const prepareInsertSQL = (databaseName, id, doc) => {
   const fields = ['id', 'json']
   const replacements = ['$1', '$2']
   const smallDoc = JSON.parse(JSON.stringify(doc))
@@ -73,13 +70,75 @@ const prepareSQL = (databaseName, id, doc) => {
   return { sql: sql, values: values }
 }
 
+// delete SQL
+const prepareDeleteSQL = (databaseName, id) => {
+  const sql = 'DELETE FROM ' + databaseName + ' WHERE id = $1'
+  return { sql: sql, values: [id] }
+}
+
 // write a document to the database
 const writeDoc = async (databaseName, id, doc) => {
   debug('Add document ' + id + ' to database - ' + databaseName)
-  const preparedQuery = prepareSQL(databaseName, id, doc)
+  const preparedQuery = prepareInsertSQL(databaseName, id, doc)
   debug(preparedQuery.sql)
   return client.query(preparedQuery.sql, preparedQuery.values)
 }
+
+// POST /db/_bulk_docs
+// bulk add/update/delete several documents
+app.post('/:db/_bulk_docs', async (req, res) => {
+  const databaseName = req.params.db
+  if (!utils.validDatabaseName(databaseName)) {
+    return sendError(res, 400, 'Invalid database name')
+  }
+
+  // docs parameter
+  const docs = req.body.docs
+  if (!docs || !Array.isArray(req.body.docs) || docs.length === 0) {
+    return sendError(res, 400, 'Invalid docs parameter')
+  }
+
+  // start transaction
+  await client.query('BEGIN')
+  const response = []
+
+  // process each document
+  for (var i in docs) {
+    const doc = docs[i]
+    let preparedQuery, id
+
+    // if this is a deletion
+    if (doc._deleted) {
+      id = doc._id || null
+      if (!id || !utils.validID(id)) {
+        response.push({ ok: false, error: 'missing or invalid _id' })
+        continue
+      }
+      preparedQuery = prepareDeleteSQL(databaseName, id)
+    } else {
+      // update or insert
+      id = doc._id || kuuid.id()
+      if (!utils.validID(id)) {
+        response.push({ ok: false, id: id, error: 'invalid _id' })
+        continue
+      }
+      preparedQuery = prepareInsertSQL(databaseName, id, doc)
+    }
+
+    // perform the SQL
+    debug(preparedQuery.sql, preparedQuery.values)
+    try {
+      await client.query(preparedQuery.sql, preparedQuery.values)
+      response.push({ ok: true, id: id, rev: '0-1' })
+    } catch (e) {
+      response.push({ ok: false, id: id, error: 'Dailed to write document' })
+    }
+  }
+
+  // end transaction
+  await client.query('COMMIT')
+  res.status(201).send(response)
+})
 
 // GET /db/_all_dbs
 // get a list of databases (tables)
@@ -138,13 +197,13 @@ app.post('/:db/_query', async (req, res) => {
   }
 
   // limit parameter
-  let limit = query.limit ? query.limit : undefined
+  const limit = query.limit ? query.limit : 100
   if (limit && (typeof limit !== 'number' || limit < 1)) {
     return sendError(res, 400, 'Invalid limit parameter')
   }
 
   // offset parameter
-  let offset = query.offset ? query.offset : undefined
+  const offset = query.offset ? query.offset : 0
   if (offset && (typeof offset !== 'number' || offset < 0)) {
     return sendError(res, 400, 'Invalid offset parameter')
   }
@@ -200,8 +259,8 @@ app.get('/:db/_all_docs', async (req, res) => {
   try {
     startkey = req.query.startkey ? JSON.parse(req.query.startkey) : undefined
     endkey = req.query.endkey ? JSON.parse(req.query.endkey) : undefined
-    limit = req.query.limit ? JSON.parse(req.query.limit) : undefined
-    offset = req.query.offset ? JSON.parse(req.query.offset) : undefined
+    limit = req.query.limit ? JSON.parse(req.query.limit) : 100
+    offset = req.query.offset ? JSON.parse(req.query.offset) : 0
   } catch (e) {
     return sendError(res, 400, 'Invalid startkey/endkey/limit/offset parameters')
   }
