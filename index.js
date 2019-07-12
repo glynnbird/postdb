@@ -47,9 +47,7 @@ const sendError = (res, statusCode, str) => {
   res.status(statusCode).send({ error: str })
 }
 
-// write a document to the database
-const writeDoc = async (databaseName, id, doc) => {
-  debug('Add document ' + id + ' to database - ' + databaseName)
+const prepareSQL = (databaseName, id, doc) => {
   const fields = ['id', 'json']
   const replacements = ['$1', '$2']
   const smallDoc = JSON.parse(JSON.stringify(doc))
@@ -72,8 +70,15 @@ const writeDoc = async (databaseName, id, doc) => {
     j++
   })
   const sql = 'INSERT INTO ' + databaseName + ' (' + fields.join(',') + ') VALUES (' + replacements.join(',') + ') ON CONFLICT (id) DO UPDATE SET ' + pairs.join(',') + ' WHERE ' + databaseName + '.id = $1'
-  debug(sql)
-  return client.query(sql, values)
+  return { sql: sql, values: values }
+}
+
+// write a document to the database
+const writeDoc = async (databaseName, id, doc) => {
+  debug('Add document ' + id + ' to database - ' + databaseName)
+  const preparedQuery = prepareSQL(databaseName, id, doc)
+  debug(preparedQuery.sql)
+  return client.query(preparedQuery.sql, preparedQuery.values)
 }
 
 // GET /db/_all_dbs
@@ -134,8 +139,14 @@ app.post('/:db/_query', async (req, res) => {
 
   // limit parameter
   let limit = query.limit ? query.limit : undefined
-  if (limit && typeof limit !== 'number' && limit < 1) {
+  if (limit && (typeof limit !== 'number' || limit < 1)) {
     return sendError(res, 400, 'Invalid limit parameter')
+  }
+
+  // offset parameter
+  let offset = query.offset ? query.offset : undefined
+  if (offset && (typeof offset !== 'number' || offset < 0)) {
+    return sendError(res, 400, 'Invalid offset parameter')
   }
 
   try {
@@ -154,6 +165,9 @@ app.post('/:db/_query', async (req, res) => {
     }
     if (limit) {
       sql += ' LIMIT ' + limit
+    }
+    if (offset) {
+      sql += ' OFFSET ' + offset
     }
     debug(sql, params)
     const data = await client.query(sql, params)
@@ -181,19 +195,25 @@ app.post('/:db/_query', async (req, res) => {
 app.get('/:db/_all_docs', async (req, res) => {
   const databaseName = req.params.db
   const includeDocs = req.query.include_docs === 'true'
-  let startkey, endkey, limit
+  let startkey, endkey, limit, offset
 
   try {
     startkey = req.query.startkey ? JSON.parse(req.query.startkey) : undefined
     endkey = req.query.endkey ? JSON.parse(req.query.endkey) : undefined
     limit = req.query.limit ? JSON.parse(req.query.limit) : undefined
+    offset = req.query.offset ? JSON.parse(req.query.offset) : undefined
   } catch (e) {
-    return sendError(res, 400, 'Invalid parameters')
+    return sendError(res, 400, 'Invalid startkey/endkey/limit/offset parameters')
   }
 
   // check limit parameter
-  if (limit && typeof limit !== 'number' && limit < 1) {
-    return sendError(res, 400, 'Invalid parameters')
+  if (limit && (typeof limit !== 'number' || limit < 1)) {
+    return sendError(res, 400, 'Invalid limit parameter')
+  }
+
+  // offset parameter
+  if (offset && (typeof offset !== 'number' || offset < 0)) {
+    return sendError(res, 400, 'Invalid offset parameter')
   }
 
   // const offset = 0
@@ -216,14 +236,15 @@ app.get('/:db/_all_docs', async (req, res) => {
   if (limit) {
     sql += ' LIMIT ' + limit
   }
+  if (offset) {
+    sql += ' OFFSET ' + offset
+  }
 
   try {
     debug(sql)
     const data = await client.query(sql, params)
     const obj = {
-      offset: 0,
-      rows: [],
-      total_rows: 0
+      rows: []
     }
     for (var i in data.rows) {
       const row = data.rows[i]
