@@ -52,18 +52,18 @@ const sendError = (res, statusCode, str) => {
 
 // prepare SQL statement
 const prepareInsertSQL = (databaseName, id, doc) => {
-  const fields = ['id', 'json', 'ts']
-  const replacements = ['$1', '$2', '$3']
+  const fields = ['id', 'json', 'ts', 'deleted']
+  const replacements = ['$1', '$2', '$3', '$4']
   const smallDoc = JSON.parse(JSON.stringify(doc))
   Object.keys(smallDoc).map((key) => {
     if (key.startsWith('_')) {
       delete smallDoc[key]
     }
   })
-  const values = [id, smallDoc, kuuid.prefix()]
+  const values = [id, smallDoc, kuuid.prefix(), 'FALSE']
   for (var i = 1; i <= indexes; i++) {
     fields.push('i' + i)
-    replacements.push('$' + (i + 3))
+    replacements.push('$' + (i + 4))
     values.push(doc['_i' + i] ? doc['_i' + i] : '')
   }
   const pairs = []
@@ -80,8 +80,13 @@ const prepareInsertSQL = (databaseName, id, doc) => {
 
 // delete SQL
 const prepareDeleteSQL = (databaseName, id) => {
-  const sql = 'DELETE FROM ' + databaseName + ' WHERE id = $1'
-  return { sql: sql, values: [id] }
+  const ts = kuuid.prefix()
+  let sql = 'UPDATE ' + databaseName + ' SET deleted=TRUE,ts=$1'
+  for (var i = 0; i < indexes; i++) {
+    sql += ' ,i' + (i + 1) + '=\'\''
+  }
+  sql += ' WHERE id = $2'
+  return { sql: sql, values: [ts, id] }
 }
 
 // write a document to the database
@@ -168,7 +173,7 @@ app.get('/_all_dbs', async (req, res) => {
 })
 
 // GET /db/_all_dbs
-// get a list of unique ids 
+// get a list of unique ids
 app.get('/_uuids', (req, res) => {
   const count = req.query.count ? JSON.parse(req.query.count) : 1
   if (count < 1 || count > 100) {
@@ -184,20 +189,20 @@ app.get('/_uuids', (req, res) => {
 })
 
 // GET /db/changes
-// get a list of changes 
+// get a list of changes
 app.get('/:db/_changes', async (req, res) => {
   const databaseName = req.params.db
   if (!utils.validDatabaseName(databaseName)) {
     return sendError(res, 400, 'Invalid database name')
   }
-  
+
   // parameter munging
   const since = req.query.since ? req.query.since : '0'
   const includeDocs = req.query.include_docs === 'true'
   let limit
   try {
     limit = req.query.limit ? Number.parseInt(req.query.limit) : null
-  } catch(e) {
+  } catch (e) {
     return sendError(res, 400, 'Invalid limit parameter')
   }
   if (limit && (typeof limit !== 'number' || limit < 1)) {
@@ -205,7 +210,7 @@ app.get('/:db/_changes', async (req, res) => {
   }
 
   // do query
-  let fields = 'id,ts'
+  let fields = 'id,ts,deleted'
   if (includeDocs) {
     fields = '*'
   }
@@ -229,9 +234,12 @@ app.get('/:db/_changes', async (req, res) => {
       doc._rev = '0-1'
 
       const thisobj = {
-        changes: [ { rev: '0-1'}],
+        changes: [{ rev: '0-1' }],
         id: row.id,
         seq: row.ts
+      }
+      if (row.deleted) {
+        thisobj.deleted = true
       }
       if (includeDocs) {
         for (i = 1; i <= indexes; i++) {
@@ -244,7 +252,7 @@ app.get('/:db/_changes', async (req, res) => {
     }
     obj.last_seq = lastSeq
     res.send(obj)
-  } catch(e) {
+  } catch (e) {
     debug(e)
     sendError(res, 500, 'Could not fetch changes feed')
   }
@@ -284,17 +292,17 @@ app.post('/:db/_query', async (req, res) => {
   }
 
   try {
-    let sql = 'SELECT * FROM ' + databaseName + ' WHERE '
+    let sql = 'SELECT * FROM ' + databaseName + ' WHERE deleted=FALSE'
     const params = []
     if (query.startkey || query.endkey) {
       query.startkey = query.startkey ? query.startkey : ''
       query.endkey = query.endkey ? query.endkey : '~'
-      sql += query.index + ' >= $1 AND ' + query.index + ' <= $2'
+      sql += ' AND ' + query.index + ' >= $1 AND ' + query.index + ' <= $2'
       sql += ' ORDER BY ' + query.index
       params.push(query.startkey)
       params.push(query.endkey)
     } else if (query.key) {
-      sql += query.index + ' = $1'
+      sql += ' AND ' + query.index + ' = $1'
       params.push(query.key)
     }
     if (limit) {
@@ -313,8 +321,8 @@ app.post('/:db/_query', async (req, res) => {
       const doc = row.json ? row.json : {}
       doc._id = row.id
       doc._rev = '0-1'
-      for (i = 1; i <= indexes; i++) {
-        doc['_i' + i] = data.rows[0]['i' + i]
+      for (var j = 1; j <= indexes; j++) {
+        doc['_i' + j] = data.rows[i]['i' + j]
       }
       obj.docs.push(doc)
     }
@@ -358,9 +366,9 @@ app.get('/:db/_all_docs', async (req, res) => {
   }
 
   // build the query
-  let sql = 'SELECT ' + fields + ' FROM ' + databaseName
+  let sql = 'SELECT ' + fields + ' FROM ' + databaseName + ' WHERE deleted=FALSE '
   if (startkey || endkey) {
-    sql += ' WHERE '
+    sql += ' AND '
     startkey = startkey || ''
     endkey = endkey || '~'
     sql += 'id >= $1 AND id <= $2'
@@ -387,8 +395,8 @@ app.get('/:db/_all_docs', async (req, res) => {
       doc._rev = '0-1'
       const thisobj = { id: row.id, key: row.id, value: { rev: '0-1' } }
       if (includeDocs) {
-        for (i = 1; i <= indexes; i++) {
-          doc['_i' + i] = row['i' + i]
+        for (var j = 1; j <= indexes; j++) {
+          doc['_i' + j] = row['i' + j]
         }
         thisobj.doc = doc
       }
@@ -412,7 +420,7 @@ app.get('/:db/:id', async (req, res) => {
     return sendError(res, 400, 'Invalid id')
   }
   try {
-    const sql = 'SELECT * FROM ' + databaseName + ' WHERE id = $1'
+    const sql = 'SELECT * FROM ' + databaseName + ' WHERE id = $1 AND DELETED=false'
     debug(sql)
     const data = await client.query(sql, [id])
     const doc = data.rows[0].json
@@ -463,11 +471,12 @@ app.delete('/:db/:id', readOnlyMiddleware, async (req, res) => {
     return sendError(res, 400, 'Invalid id')
   }
   try {
-    const sql = 'DELETE FROM ' + databaseName + ' WHERE id = $1'
-    debug(sql)
-    await client.query(sql, [id])
+    const preparedQuery = prepareDeleteSQL(databaseName, id)
+    debug(preparedQuery.sql, preparedQuery.values)
+    await client.query(preparedQuery.sql, preparedQuery.values)
     res.send({ ok: true, id: id, rev: '0-1' })
   } catch (e) {
+    debug(e)
     sendError(res, 404, 'Could not delete document ' + databaseName + '/' + id)
   }
 })
@@ -498,7 +507,7 @@ app.put('/:db', readOnlyMiddleware, async (req, res) => {
     return sendError(res, 400, 'Invalid database name')
   }
   debug('Creating database - ' + databaseName)
-  const fields = ['id VARCHAR(255) PRIMARY KEY', 'json json NOT NULL', 'ts VARCHAR(8) NOT NULL']
+  const fields = ['id VARCHAR(255) PRIMARY KEY', 'json json NOT NULL', 'ts VARCHAR(8) NOT NULL', 'deleted BOOLEAN NOT NULL']
   for (var i = 1; i <= indexes; i++) {
     fields.push('i' + i + ' VARCHAR(100)')
   }
@@ -557,15 +566,18 @@ app.get('/:db', async (req, res) => {
     let sql = 'SELECT relname as database, pg_total_relation_size(C.oid) as size FROM pg_class C LEFT JOIN pg_namespace N ON (N.oid = C.relnamespace) WHERE nspname NOT IN (\'pg_catalog\', \'information_schema\') AND C.relkind <> \'i\' AND nspname !~ \'^pg_toast\' AND relname = $1'
     debug(sql)
     const databaseSize = await client.query(sql, [databaseName])
-    sql = 'SELECT COUNT(*) as c from ' + databaseName
+    sql = 'SELECT COUNT(*) as c from ' + databaseName + ' WHERE deleted=FALSE'
     const databaseCount = await client.query(sql)
+    sql = 'SELECT COUNT(*) as c from ' + databaseName + ' WHERE deleted=TRUE'
+    const databaseDelCount = await client.query(sql)
     const obj = {
       db_name: databaseName,
       instance_start_time: '0',
       doc_count: databaseCount.rows[0].c,
+      doc_del_count: databaseDelCount.rows[0].c,
       sizes: {
         file: databaseSize.rows[0].size,
-        active: databaseCount.rows[0].c
+        active: databaseSize.rows[0].size
       }
     }
     res.send(obj)
