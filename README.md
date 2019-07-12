@@ -15,6 +15,8 @@ It does however provide a "consistent" data store where the documents and second
 
 ![schmeatic](postdb.png)
 
+Optionally, PostDB nodes can be run in _readonly_ mode and configured to read data from PostgreSQL _read replicas_ to scale out read performance.
+
 ## Running 
 
 Download this project and install the dependencies to run it on your machine:
