@@ -7,6 +7,7 @@ const debug = require('debug')(pkg.name)
 const app = express()
 const basicAuth = require('express-basic-auth')
 const kuuid = require('kuuid')
+const morgan = require('morgan')
 
 // incoming environment variables
 const port = process.env.PORT || defaults.port
@@ -19,6 +20,12 @@ const password = process.env.PASSWORD || defaults.password
 // JSON parsing middleware
 const bodyParser = require('body-parser')
 app.use(bodyParser.json())
+
+// Logging middleware
+const loggingFormat = process.env.LOGGING || defaults.logging
+if (loggingFormat !== 'none') {
+  app.use(morgan(loggingFormat))
+}
 
 // AUTH middleware
 if (username && password) {
@@ -508,7 +515,11 @@ app.get('/', (req, res) => {
 
 // main
 const main = async () => {
-  await client.connect()
-  app.listen(port, () => console.log(`Example app listening on port ${port}!`))
+  try {
+    await client.connect()
+    app.listen(port, () => console.log(`${pkg.name} listening on port ${port}!`))
+  } catch (e) {
+    console.error('Cannot connect to PostgreSQL')
+  }
 }
 main()
