@@ -27,6 +27,7 @@
     "body-parser": "^1.19.0",
     "debug": "^4.1.1",
     "express": "^4.17.1",
+    "express-basic-auth": "^1.2.0",
     "kuuid": "^0.4.0",
     "pg": "^7.11.0"
   },

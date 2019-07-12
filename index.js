@@ -4,10 +4,15 @@ const defaults = require('./lib/defaults.js')
 const pkg = require('./package.json')
 const debug = require('debug')(pkg.name)
 const app = express()
+const basicAuth = require('express-basic-auth')
+
+// incoming environment variables
 const port = process.env.PORT || defaults.port
 const indexes = process.env.INDEXES || defaults.indexes
 const readOnlyFlag = process.env.READONLY || defaults.readonly
 const readOnlyMode = readOnlyFlag ? true : false
+const username = process.env.USERNAME || defaults.username
+const password = process.env.PASSWORD || defaults.password
 
 // utilities library
 const utils = require('./lib/utils.js')
@@ -18,6 +23,14 @@ const kuuid = require('kuuid')
 // JSON parsing middleware
 const bodyParser = require('body-parser')
 app.use(bodyParser.json())
+
+// AUTH middleware
+if (username && password) {
+  console.log('NOTE: authentication mode')
+  const obj = {}
+  obj[username] = password
+  app.use(basicAuth({ users: obj}))
+}
 
 // readonly middleware
 const readOnlyMiddleware = require('./lib/readonly.js')(readOnlyMode)
