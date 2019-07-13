@@ -17,7 +17,7 @@ It does however provide a "consistent" data store where the documents and second
 
 Optionally, PostDB nodes can be run in _readonly_ mode and configured to read data from PostgreSQL _read replicas_ to scale out read performance.
 
-## Running 
+## Running locally
 
 Download this project and install the dependencies to run it on your machine:
 
@@ -28,6 +28,19 @@ npm run start
 
 The application will connect to local PostgreSQL instance and start serving out its API on port 5984 (CouchDB's default port), by default.
 
+## Running in Docker
+
+Build the image
+
+```sh
+docker build -t postdb .
+```
+
+Run:
+
+```sh
+docker run --env DEBUG=postdb postdb
+```
 ## API Reference
 
 ### Create Database - PUT /db
