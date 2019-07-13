@@ -10,6 +10,7 @@ const app = express()
 const basicAuth = require('express-basic-auth')
 const kuuid = require('kuuid')
 const morgan = require('morgan')
+const url = require('url')
 
 // incoming environment variables vs defaults
 const defaults = require('./lib/defaults.js')
@@ -53,6 +54,39 @@ const writeDoc = async (databaseName, id, doc) => {
   debug(preparedQuery.sql)
   return client.query(preparedQuery.sql, preparedQuery.values)
 }
+
+// POST /_replicator
+// start a replication
+app.post('/_replicator', async (req, res) => {
+  const doc = req.body || {}
+  if (!doc.source || !doc.target) {
+    return sendError(res, 400, 'source and target must be supplied')
+  }
+  try {
+    const myURL = new url.URL(doc.source)
+    debug('source url', myURL.host)
+  } catch (e) {
+    return sendError(res, 400, 'source must be a URL')
+  }
+  if (!utils.validDatabaseName(doc.target)) {
+    return sendError(res, 400, 'target must be a valid database name')
+  }
+  doc.continuous = (doc.continuous === true)
+  doc.create_target = (doc.create_target === true)
+  doc.state = 'new'
+  doc.seq = 0
+  doc.doc_count = 0
+  doc.id = utils.hash(JSON.stringify({ source: doc.source, target: doc.target }))
+
+  try {
+    const sql = docutils.prepareInsertReplicatorSQL(doc)
+    await client.query(sql.sql, sql.values)
+    res.send({ ok: true, id: doc.id, rev: '0-1' })
+  } catch (e) {
+    debug(e)
+    sendError(res, 404, 'Could not write to _replicator')
+  }
+})
 
 // POST /db/_bulk_docs
 // bulk add/update/delete several documents
