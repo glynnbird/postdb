@@ -76,15 +76,64 @@ app.post('/_replicator', async (req, res) => {
   doc.state = 'new'
   doc.seq = 0
   doc.doc_count = 0
-  doc.id = utils.hash(JSON.stringify({ source: doc.source, target: doc.target }))
+  doc._i1 = doc.state
+  const id = utils.hash(JSON.stringify({ source: doc.source, target: doc.target }))
 
   try {
-    const sql = docutils.prepareInsertReplicatorSQL(doc)
-    await client.query(sql.sql, sql.values)
-    res.send({ ok: true, id: doc.id, rev: '0-1' })
+    await writeDoc('_replicator', id, doc)
+    res.send({ ok: true, id: id, rev: '0-1' })
   } catch (e) {
     debug(e)
     sendError(res, 404, 'Could not write to _replicator')
+  }
+})
+
+// DELETE /_replicator/id
+app.delete('/_replicator/:id', async (req, res) => {
+  const id = req.params.id
+  if (!utils.validID(id)) {
+    return sendError(res, 400, 'Invalid id')
+  }
+  try {
+    // read the document
+    const sql = docutils.prepareGetSQL('_replicator')
+    debug(sql, [id])
+    const data = await client.query(sql, [id])
+    if (data.rows.length === 0) {
+      throw (new Error('missing document'))
+    }
+    const doc = docutils.processResultDoc(data.rows[0])
+
+    // set it to cancellled and write it back
+    doc.state = doc._i1 = 'cancelled'
+    await writeDoc('_replicator', id, doc)
+    res.send({ ok: true, id: id, rev: '0-1' })
+  } catch (e) {
+    debug(e)
+    sendError(res, 404, 'Document not found')
+  }
+})
+
+// GET /_replicator/id
+app.get('/_replicator/:id', async (req, res) => {
+  const id = req.params.id
+  if (!utils.validID(id)) {
+    return sendError(res, 400, 'Invalid id')
+  }
+  try {
+    // read the document
+    const sql = docutils.prepareGetSQL('_replicator')
+    debug(sql, [id])
+    const data = await client.query(sql, [id])
+    console.log(data.rows)
+    if (data.rows.length === 0) {
+      throw (new Error('missing document'))
+    }
+    const doc = docutils.processResultDoc(data.rows[0])
+    res.send(doc)
+  } catch (e) {
+    debug(e)
+    sendError(res, 404, 'Document not found')
   }
 })
 
@@ -195,6 +244,7 @@ app.post('/:db/_purge', async (req, res) => {
     }
     res.send({ purge_seq: null, purged: req.body })
   } catch (e) {
+    await client.query('ROLLBACK')
     debug(e)
     sendError(res, 404, 'Could not retrieve databases')
   }
@@ -375,6 +425,9 @@ app.get('/:db/:id', async (req, res) => {
     const sql = docutils.prepareGetSQL(databaseName)
     debug(sql)
     const data = await client.query(sql, [id])
+    if (data.rows.length === 0) {
+      throw (new Error('missing document'))
+    }
     const doc = docutils.processResultDoc(data.rows[0])
     res.send(doc)
   } catch (e) {
@@ -462,7 +515,7 @@ app.put('/:db', readOnlyMiddleware, async (req, res) => {
     }
     res.status(201).send({ ok: true })
   } catch (e) {
-    debug(e)
+    await client.query('ROLLBACK')
     sendError(res, 400, 'Could not create database' + databaseName)
   }
 })
@@ -548,9 +601,16 @@ const main = async () => {
     // connect to PostgreSQL
     await client.connect()
 
-    // create _replicator database
-    const sql = tableutils.prepareCreateReplicatorTableSQL()
-    await client.query(sql)
+    try {
+      // create _replicator database
+      const sql = tableutils.prepareCreateTableTransaction('_replicator')
+      for (var i = 0; i < sql.length; i++) {
+        await client.query(sql[i])
+      }
+    } catch (e) {
+      await client.query('ROLLBACK')
+      debug('Cannot create _replicator database')
+    }
 
     // start up the app
     app.listen(defaults.port, () => console.log(`${pkg.name} listening on port ${defaults.port}!`))
