@@ -1,7 +1,9 @@
 // modules and libraries
 const express = require('express')
-const defaults = require('./lib/defaults.js')
 const utils = require('./lib/utils.js')
+const docutils = require('./lib/docutils.js')
+const tableutils = require('./lib/tableutils.js')
+const queryutils = require('./lib/queryutils.js')
 const pkg = require('./package.json')
 const debug = require('debug')(pkg.name)
 const app = express()
@@ -9,35 +11,29 @@ const basicAuth = require('express-basic-auth')
 const kuuid = require('kuuid')
 const morgan = require('morgan')
 
-// incoming environment variables
-const port = process.env.PORT || defaults.port
-const indexes = process.env.INDEXES || defaults.indexes
-const readOnlyFlag = process.env.READONLY || defaults.readonly
-const readOnlyMode = !!readOnlyFlag
-const username = process.env.USERNAME || defaults.username
-const password = process.env.PASSWORD || defaults.password
+// incoming environment variables vs defaults
+const defaults = require('./lib/defaults.js')
 
 // JSON parsing middleware
 const bodyParser = require('body-parser')
 app.use(bodyParser.json())
 
 // Logging middleware
-const loggingFormat = process.env.LOGGING || defaults.logging
-if (loggingFormat !== 'none') {
-  app.use(morgan(loggingFormat))
+if (defaults.logging !== 'none') {
+  app.use(morgan(defaults.logging))
 }
 
 // AUTH middleware
-if (username && password) {
+if (defaults.username && defaults.password) {
   console.log('NOTE: authentication mode')
   const obj = {}
-  obj[username] = password
+  obj[defaults.username] = defaults.password
   app.use(basicAuth({ users: obj }))
 }
 
 // readonly middleware
-const readOnlyMiddleware = require('./lib/readonly.js')(readOnlyMode)
-if (readOnlyMode) {
+const readOnlyMiddleware = require('./lib/readonly.js')(defaults.readonly)
+if (defaults.readonly) {
   console.log('NOTE: readonly mode')
 }
 
@@ -50,48 +46,10 @@ const sendError = (res, statusCode, str) => {
   res.status(statusCode).send({ error: str })
 }
 
-// prepare SQL statement
-const prepareInsertSQL = (databaseName, id, doc) => {
-  const fields = ['id', 'json', 'ts', 'deleted']
-  const replacements = ['$1', '$2', '$3', '$4']
-  const smallDoc = JSON.parse(JSON.stringify(doc))
-  Object.keys(smallDoc).map((key) => {
-    if (key.startsWith('_')) {
-      delete smallDoc[key]
-    }
-  })
-  const values = [id, smallDoc, kuuid.prefixms(), 'FALSE']
-  for (var i = 1; i <= indexes; i++) {
-    fields.push('i' + i)
-    replacements.push('$' + (i + 4))
-    values.push(doc['_i' + i] ? doc['_i' + i] : '')
-  }
-  const pairs = []
-  let j = 1
-  fields.forEach((f) => {
-    const pair = f + ' = $' + j
-    pairs.push(pair)
-    j++
-  })
-  const sql = 'INSERT INTO ' + databaseName + ' (' + fields.join(',') + ') VALUES (' + replacements.join(',') + ') ON CONFLICT (id) DO UPDATE SET ' + pairs.join(',') + ' WHERE ' + databaseName + '.id = $1'
-  return { sql: sql, values: values }
-}
-
-// delete SQL
-const prepareDeleteSQL = (databaseName, id) => {
-  const ts = kuuid.prefixms()
-  let sql = 'UPDATE ' + databaseName + ' SET deleted=TRUE,ts=$1'
-  for (var i = 0; i < indexes; i++) {
-    sql += ' ,i' + (i + 1) + '=\'\''
-  }
-  sql += ' WHERE id = $2'
-  return { sql: sql, values: [ts, id] }
-}
-
 // write a document to the database
 const writeDoc = async (databaseName, id, doc) => {
   debug('Add document ' + id + ' to database - ' + databaseName)
-  const preparedQuery = prepareInsertSQL(databaseName, id, doc)
+  const preparedQuery = docutils.prepareInsertSQL(databaseName, id, doc)
   debug(preparedQuery.sql)
   return client.query(preparedQuery.sql, preparedQuery.values)
 }
@@ -126,7 +84,7 @@ app.post('/:db/_bulk_docs', async (req, res) => {
         response.push({ ok: false, error: 'missing or invalid _id' })
         continue
       }
-      preparedQuery = prepareDeleteSQL(databaseName, id)
+      preparedQuery = docutils.prepareDeleteSQL(databaseName, id)
     } else {
       // update or insert
       id = doc._id || kuuid.id()
@@ -134,7 +92,7 @@ app.post('/:db/_bulk_docs', async (req, res) => {
         response.push({ ok: false, id: id, error: 'invalid _id' })
         continue
       }
-      preparedQuery = prepareInsertSQL(databaseName, id, doc)
+      preparedQuery = docutils.prepareInsertSQL(databaseName, id, doc)
     }
 
     // perform the SQL
@@ -156,7 +114,7 @@ app.post('/:db/_bulk_docs', async (req, res) => {
 // get a list of databases (tables)
 app.get('/_all_dbs', async (req, res) => {
   try {
-    const sql = 'SELECT table_name  FROM information_schema.tables WHERE table_schema=\'public\''
+    const sql = tableutils.prepareTableListSQL()
     debug(sql)
     const data = await client.query(sql)
     const databases = []
@@ -194,15 +152,13 @@ app.post('/:db/_purge', async (req, res) => {
   if (!utils.validDatabaseName(databaseName)) {
     return sendError(res, 400, 'Invalid database name')
   }
-
   try {
-    await client.query('BEGIN')
-    const keys = Object.keys(req.body)
-    for (var i = 0; i < keys.length; i++) {
-      const sql = 'DELETE FROM ' + databaseName + ' WHERE id=$1'
-      await client.query(sql, [keys[i]])
+    const sql = docutils.preparePurgeTransaction(databaseName, Object.keys(req.body))
+    for (var i in sql) {
+      const s = sql[i]
+      debug(s.sql, s.values)
+      await client.query(s.sql, s.values)
     }
-    await client.query('COMMIT')
     res.send({ purge_seq: null, purged: req.body })
   } catch (e) {
     debug(e)
@@ -232,17 +188,11 @@ app.get('/:db/_changes', async (req, res) => {
   }
 
   // do query
-  let fields = 'id,ts,deleted'
-  if (includeDocs) {
-    fields = '*'
-  }
-  let sql = 'SELECT ' + fields + ' FROM ' + databaseName + ' WHERE ts >= $1'
-  sql += ' ORDER BY ts'
-  if (limit) {
-    sql += ' LIMIT ' + limit
-  }
+  const sql = queryutils.prepareChangesSQL(databaseName, since, includeDocs, limit)
+
   try {
-    const data = await client.query(sql, [since])
+    debug(sql.sql, sql.values)
+    const data = await client.query(sql.sql, sql.values)
     const obj = {
       last_seq: '',
       results: []
@@ -250,10 +200,6 @@ app.get('/:db/_changes', async (req, res) => {
     let lastSeq = since
     for (var i in data.rows) {
       const row = data.rows[i]
-      const doc = row.json ? row.json : {}
-      doc._id = row.id
-      doc._rev = '0-1'
-
       const thisobj = {
         changes: [{ rev: '0-1' }],
         id: row.id,
@@ -263,10 +209,7 @@ app.get('/:db/_changes', async (req, res) => {
         thisobj.deleted = true
       }
       if (includeDocs) {
-        for (i = 1; i <= indexes; i++) {
-          doc['_i' + i] = row['i' + i]
-        }
-        thisobj.doc = doc
+        thisobj.doc = docutils.processResultDoc(row)
       }
       lastSeq = row.ts
       obj.results.push(thisobj)
@@ -280,7 +223,7 @@ app.get('/:db/_changes', async (req, res) => {
 })
 
 // GET /db/_query
-// query one of the indexes
+// query one of the defaults.indexes
 app.post('/:db/_query', async (req, res) => {
   const databaseName = req.params.db
   if (!utils.validDatabaseName(databaseName)) {
@@ -313,42 +256,20 @@ app.post('/:db/_query', async (req, res) => {
   }
 
   try {
-    let sql = 'SELECT * FROM ' + databaseName + ' WHERE deleted=FALSE'
-    const params = []
-    if (query.startkey || query.endkey) {
-      query.startkey = query.startkey ? query.startkey : ''
-      query.endkey = query.endkey ? query.endkey : '~'
-      sql += ' AND ' + query.index + ' >= $1 AND ' + query.index + ' <= $2'
-      sql += ' ORDER BY ' + query.index
-      params.push(query.startkey)
-      params.push(query.endkey)
-    } else if (query.key) {
-      sql += ' AND ' + query.index + ' = $1'
-      params.push(query.key)
-    }
-    if (limit) {
-      sql += ' LIMIT ' + limit
-    }
-    if (offset) {
-      sql += ' OFFSET ' + offset
-    }
-    debug(sql, params)
-    const data = await client.query(sql, params)
+    const sql = queryutils.prepareQuerySQL(databaseName, query.index, query.key, query.startkey, query.endkey, query.limit, query.offset)
+    debug(sql.sql, sql.values)
+    const data = await client.query(sql.sql, sql.values)
     const obj = {
       docs: []
     }
     for (var i in data.rows) {
       const row = data.rows[i]
-      const doc = row.json ? row.json : {}
-      doc._id = row.id
-      doc._rev = '0-1'
-      for (var j = 1; j <= indexes; j++) {
-        doc['_i' + j] = data.rows[i]['i' + j]
-      }
+      const doc = docutils.processResultDoc(row)
       obj.docs.push(doc)
     }
     res.send(obj)
   } catch (e) {
+    debug(e)
     sendError(res, 404, 'Could not query database')
   }
 })
@@ -380,32 +301,11 @@ app.get('/:db/_all_docs', async (req, res) => {
   }
 
   // const offset = 0
-  const params = []
-  let fields = 'id'
-  if (includeDocs) {
-    fields = '*'
-  }
-
-  // build the query
-  let sql = 'SELECT ' + fields + ' FROM ' + databaseName + ' WHERE deleted=FALSE '
-  if (startkey || endkey) {
-    sql += ' AND '
-    startkey = startkey || ''
-    endkey = endkey || '~'
-    sql += 'id >= $1 AND id <= $2'
-    params.push(startkey)
-    params.push(endkey)
-  }
-  if (limit) {
-    sql += ' LIMIT ' + limit
-  }
-  if (offset) {
-    sql += ' OFFSET ' + offset
-  }
+  const sql = queryutils.prepareAllDocsSQL(databaseName, includeDocs, startkey, endkey, limit, offset)
 
   try {
-    debug(sql)
-    const data = await client.query(sql, params)
+    debug(sql.sql, sql.values)
+    const data = await client.query(sql.sql, sql.values)
     const obj = {
       rows: []
     }
@@ -416,10 +316,7 @@ app.get('/:db/_all_docs', async (req, res) => {
       doc._rev = '0-1'
       const thisobj = { id: row.id, key: row.id, value: { rev: '0-1' } }
       if (includeDocs) {
-        for (var j = 1; j <= indexes; j++) {
-          doc['_i' + j] = row['i' + j]
-        }
-        thisobj.doc = doc
+        thisobj.doc = docutils.processResultDoc(row)
       }
       obj.rows.push(thisobj)
     }
@@ -441,15 +338,10 @@ app.get('/:db/:id', async (req, res) => {
     return sendError(res, 400, 'Invalid id')
   }
   try {
-    const sql = 'SELECT * FROM ' + databaseName + ' WHERE id = $1 AND DELETED=false'
+    const sql = docutils.prepareGetSQL(databaseName)
     debug(sql)
     const data = await client.query(sql, [id])
-    const doc = data.rows[0].json
-    doc._id = id
-    doc._rev = '0-1'
-    for (var i = 1; i <= indexes; i++) {
-      doc['_i' + i] = data.rows[0]['i' + i]
-    }
+    const doc = docutils.processResultDoc(data.rows[0])
     res.send(doc)
   } catch (e) {
     sendError(res, 404, 'Document not found ' + id)
@@ -492,7 +384,7 @@ app.delete('/:db/:id', readOnlyMiddleware, async (req, res) => {
     return sendError(res, 400, 'Invalid id')
   }
   try {
-    const preparedQuery = prepareDeleteSQL(databaseName, id)
+    const preparedQuery = docutils.prepareDeleteSQL(databaseName, id)
     debug(preparedQuery.sql, preparedQuery.values)
     await client.query(preparedQuery.sql, preparedQuery.values)
     res.send({ ok: true, id: id, rev: '0-1' })
@@ -528,27 +420,12 @@ app.put('/:db', readOnlyMiddleware, async (req, res) => {
     return sendError(res, 400, 'Invalid database name')
   }
   debug('Creating database - ' + databaseName)
-  const fields = ['id VARCHAR(255) PRIMARY KEY', 'json json NOT NULL', 'ts VARCHAR(8) NOT NULL', 'deleted BOOLEAN NOT NULL']
-  for (var i = 1; i <= indexes; i++) {
-    fields.push('i' + i + ' VARCHAR(100)')
-  }
   try {
-    let sql = 'CREATE TABLE IF NOT EXISTS ' + databaseName + ' (' + fields.join(',') + ')'
-    debug(sql)
-    await client.query('BEGIN')
-    await client.query(sql)
-    for (i = 1; i <= indexes; i++) {
-      const field = 'i' + i
-      const indexName = databaseName + '_' + field
-      sql = 'CREATE INDEX ' + indexName + ' ON ' + databaseName + '(' + field + ')'
-      debug(sql)
-      await client.query(sql)
+    const sql = tableutils.prepareCreateTableTransaction(databaseName)
+    for (var i = 0; i < sql.length; i++) {
+      debug(sql[i])
+      await client.query(sql[i])
     }
-    const indexName = databaseName + '__ts'
-    sql = 'CREATE INDEX ' + indexName + ' ON ' + databaseName + '(ts)'
-    debug(sql)
-    await client.query(sql)
-    await client.query('COMMIT')
     res.status(201).send({ ok: true })
   } catch (e) {
     debug(e)
@@ -565,7 +442,7 @@ app.delete('/:db', readOnlyMiddleware, async (req, res) => {
   }
   debug('Delete database - ' + databaseName)
   try {
-    const sql = 'DROP TABLE ' + databaseName + ' CASCADE'
+    const sql = tableutils.prepareDropTableSQL(databaseName)
     debug(sql)
     await client.query(sql)
     res.send({ ok: true })
@@ -584,13 +461,19 @@ app.get('/:db', async (req, res) => {
   }
   debug('Get database info - ' + databaseName)
   try {
-    let sql = 'SELECT relname as database, pg_total_relation_size(C.oid) as size FROM pg_class C LEFT JOIN pg_namespace N ON (N.oid = C.relnamespace) WHERE nspname NOT IN (\'pg_catalog\', \'information_schema\') AND C.relkind <> \'i\' AND nspname !~ \'^pg_toast\' AND relname = $1'
+    // size
+    let sql = tableutils.prepareTableSizeSQL(databaseName)
     debug(sql)
-    const databaseSize = await client.query(sql, [databaseName])
-    sql = 'SELECT COUNT(*) as c from ' + databaseName + ' WHERE deleted=FALSE'
+    const databaseSize = await client.query(sql.sql, sql.values)
+
+    // doc count
+    sql = tableutils.prepareTableRowCountSQL(databaseName)
     const databaseCount = await client.query(sql)
-    sql = 'SELECT COUNT(*) as c from ' + databaseName + ' WHERE deleted=TRUE'
+
+    // deleted doc count
+    sql = tableutils.prepareTableDeletedRowCountSQL(databaseName)
     const databaseDelCount = await client.query(sql)
+
     const obj = {
       db_name: databaseName,
       instance_start_time: '0',
@@ -629,7 +512,7 @@ app.use(function (req, res) {
 const main = async () => {
   try {
     await client.connect()
-    app.listen(port, () => console.log(`${pkg.name} listening on port ${port}!`))
+    app.listen(defaults.port, () => console.log(`${pkg.name} listening on port ${defaults.port}!`))
   } catch (e) {
     console.error('Cannot connect to PostgreSQL')
   }
