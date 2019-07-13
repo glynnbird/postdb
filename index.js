@@ -511,7 +511,14 @@ app.use(function (req, res) {
 // main
 const main = async () => {
   try {
+    // connect to PostgreSQL
     await client.connect()
+
+    // create _replicator database
+    const sql = tableutils.prepareCreateReplicatorTableSQL()
+    await client.query(sql)
+
+    // start up the app
     app.listen(defaults.port, () => console.log(`${pkg.name} listening on port ${defaults.port}!`))
   } catch (e) {
     console.error('Cannot connect to PostgreSQL')
