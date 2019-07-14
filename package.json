@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "standard": "standard --fix",
-    "start": "node index.js",
+    "start": "./bin/postdb_api.bin.js",
+    "replicator": "./bin/postdb_replicator.bin.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
