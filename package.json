@@ -35,5 +35,9 @@
   },
   "devDependencies": {
     "standard": "^13.0.0"
+  },
+  "bin": {
+    "postdb": "bin/postdb_api.bin.js",
+    "postdb_replicator": "bin/postdb_replicator.bin.js"
   }
 }
