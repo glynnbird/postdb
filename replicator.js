@@ -3,6 +3,7 @@ const docutils = require('./lib/docutils.js')
 const replutils = require('./lib/replicatorutils.js')
 const tableutils = require('./lib/tableutils.js')
 const pkg = require('./package.json')
+const defaults = require('./lib/defaults.js')
 const debug = require('debug')(pkg.name)
 const url = require('url')
 
@@ -11,8 +12,8 @@ const { Client } = require('pg')
 const client = new Client()
 
 // write a document to the database
-const writeDoc = async (databaseName, id, doc) => {
-  const preparedQuery = docutils.prepareInsertSQL(databaseName, id, doc)
+const writeDoc = async (databaseName, id, doc, clusterid) => {
+  const preparedQuery = docutils.prepareInsertSQL(databaseName, id, doc, clusterid)
   return client.query(preparedQuery.sql, preparedQuery.values)
 }
 
@@ -21,7 +22,7 @@ const lookForNewReplications = async (firstTime) => {
   let sql
 
   // when running this for the first time we want new jobs
-  // and running jobs (jobs that were running when the 
+  // and running jobs (jobs that were running when the
   // replicator stopped)
   if (firstTime) {
     sql = replutils.prepareFindNewOrRunningJobsSQL()
@@ -52,15 +53,15 @@ const startReplication = async (job) => {
     // parse the source url
     parsedUrl = new url.URL(job.source)
     if (!parsedUrl) {
-      throw('Invalid source URL')
+      throw (new Error('Invalid source URL'))
     }
     // set the status to running
-    await writeDoc('_replicator', job._id, job)
+    await writeDoc('_replicator', job._id, job, defaults.clusterid)
   } catch (e) {
     debug(e)
     job.state = job._i1 = 'error'
-    writeDoc('_replicator', job._id, job)
-    return 
+    writeDoc('_replicator', job._id, job, defaults.clusterid)
+    return
   }
 
   // create target if necessary
@@ -72,7 +73,7 @@ const startReplication = async (job) => {
         await client.query(sql[i])
       }
     }
-  } catch(e) {
+  } catch (e) {
     debug('Target already present')
     await client.query('ROLLBACK')
   }
@@ -88,7 +89,15 @@ const startReplication = async (job) => {
   // run replication
   let worker
   console.log(shortJobId + ' starting  from ' + job.seq.substr(0, 10))
-  const opts = { batchSize: 5000, since: job.seq, includeDocs: true }
+  const opts = {
+    batchSize: 5000,
+    since: job.seq,
+    includeDocs: true,
+    wait: true
+  }
+  if (job.exclude.length > 0) {
+    opts.qs = { exclude: job.exclude }
+  }
 
   // decide whether to use continuous or one-off
   if (job.continuous) {
@@ -103,12 +112,23 @@ const startReplication = async (job) => {
       console.log(shortJobId + ' ' + b.length + ' changes')
       try {
         const write = async () => {
+          let docCount = 0
           await client.query('BEGIN')
           for (var i = 0; i < b.length; i++) {
-            await writeDoc(job.target, b[i].id, b[i].doc)
+            const clusterid = b[i].clusterid || defaults.clusterid
+            if (b.deleted) {
+              const sql = docutils.prepareDeleteSQL(job.target, b[i].id, clusterid)
+              await client.query(sql.sql, sql.values)
+              docCount++
+            } else {
+              if (!b[i].id.match(/^_design/)) {
+                await writeDoc(job.target, b[i].id, b[i].doc, clusterid)
+                docCount++
+              }
+            }
           }
-          job.doc_count += b.length
-          await writeDoc('_replicator', job._id, job)
+          job.doc_count += docCount
+          await writeDoc('_replicator', job._id, job, defaults.clusterid)
           await client.query('COMMIT')
         }
         write().then(callback)
@@ -121,7 +141,7 @@ const startReplication = async (job) => {
       // will be written on next batch
     }).on('error', (e) => {
       debug('changesreader error', e)
-      job.state= job._i1 = 'error'
+      job.state = job._i1 = 'error'
       writeDoc('_replicator', job._id, job)
     }).on('end', (e) => {
       setTimeout(function () {

@@ -26,7 +26,7 @@
   "homepage": "https://github.com/glynnbird/postdb#readme",
   "dependencies": {
     "body-parser": "^1.19.0",
-    "changesreader": "^1.1.3",
+    "changesreader": "^1.2.1",
     "debug": "^4.1.1",
     "express": "^4.17.1",
     "express-basic-auth": "^1.2.0",

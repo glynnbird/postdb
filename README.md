@@ -264,7 +264,7 @@ $ curl http://localhost:5984/_replicator/73106768769860315949fe301a75c18a
 Note the additional fields:
 
 - `state` - the state of the replication `new`/`running`/`completed`/`error`
-- `doc_count` - the number of documents written so far
+- `doc_count` - the number of documents written so far.
 
 ## Configuring
 
@@ -276,6 +276,7 @@ The application is configured using environment variables
 - `USERNAME`/`PASSWORD` - to insist on authenticated connections, both `USERNAME`/`PASSWORD` must be set and then the server will require them to be supplied in every request using HTTP Basic Authentication.
 - `DEBUG` - when set to `postdb` the PostDB console will contain extra debugging information.
 - `LOGGING` - the logging format. One of `combined`/`common`/`dev`/`short`/`tiny`/`none`. Default `dev`.
+- `CLUSTERID` - the id of the PostDB cluster. Used to identify the origin of individual document writes, so that the changes feed needn't include your own cluster's changes. Default `''`.
 
 To use a custom PostgreSQL database rather than the default, set the following environment variables:
 

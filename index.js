@@ -50,7 +50,7 @@ const sendError = (res, statusCode, str) => {
 // write a document to the database
 const writeDoc = async (databaseName, id, doc) => {
   debug('Add document ' + id + ' to database - ' + databaseName)
-  const preparedQuery = docutils.prepareInsertSQL(databaseName, id, doc)
+  const preparedQuery = docutils.prepareInsertSQL(databaseName, id, doc, defaults.clusterid)
   debug(preparedQuery.sql)
   return client.query(preparedQuery.sql, preparedQuery.values)
 }
@@ -76,6 +76,7 @@ app.post('/_replicator', async (req, res) => {
   doc.state = 'new'
   doc.seq = '0'
   doc.doc_count = 0
+  doc.exclude = doc.exclude || ''
   doc._i1 = doc.state
   const id = utils.hash(JSON.stringify({ source: doc.source, target: doc.target }))
 
@@ -167,7 +168,7 @@ app.post('/:db/_bulk_docs', async (req, res) => {
         response.push({ ok: false, error: 'missing or invalid _id' })
         continue
       }
-      preparedQuery = docutils.prepareDeleteSQL(databaseName, id)
+      preparedQuery = docutils.prepareDeleteSQL(databaseName, id, defaults.clusterid)
     } else {
       // update or insert
       id = doc._id || kuuid.id()
@@ -175,7 +176,7 @@ app.post('/:db/_bulk_docs', async (req, res) => {
         response.push({ ok: false, id: id, error: 'invalid _id' })
         continue
       }
-      preparedQuery = docutils.prepareInsertSQL(databaseName, id, doc)
+      preparedQuery = docutils.prepareInsertSQL(databaseName, id, doc, defaults.clusterid)
     }
 
     // perform the SQL
@@ -261,6 +262,7 @@ app.get('/:db/_changes', async (req, res) => {
   // parameter munging
   const since = req.query.since ? req.query.since : '0'
   const includeDocs = req.query.include_docs === 'true'
+  const excludeClusterId = req.query.exclude ? req.query.exclude : null
   let limit
   try {
     limit = req.query.limit ? Number.parseInt(req.query.limit) : null
@@ -272,7 +274,7 @@ app.get('/:db/_changes', async (req, res) => {
   }
 
   // do query
-  const sql = queryutils.prepareChangesSQL(databaseName, since, includeDocs, limit)
+  const sql = queryutils.prepareChangesSQL(databaseName, since, includeDocs, limit, excludeClusterId)
 
   try {
     debug(sql.sql, sql.values)
@@ -287,7 +289,8 @@ app.get('/:db/_changes', async (req, res) => {
       const thisobj = {
         changes: [{ rev: '0-1' }],
         id: row.id,
-        seq: row.seq.toString()
+        seq: row.seq.toString(),
+        clusterid: row.clusterid
       }
       if (row.deleted) {
         thisobj.deleted = true
@@ -471,7 +474,7 @@ app.delete('/:db/:id', readOnlyMiddleware, async (req, res) => {
     return sendError(res, 400, 'Invalid id')
   }
   try {
-    const preparedQuery = docutils.prepareDeleteSQL(databaseName, id)
+    const preparedQuery = docutils.prepareDeleteSQL(databaseName, id, defaults.clusterid)
     debug(preparedQuery.sql, preparedQuery.values)
     await client.query(preparedQuery.sql, preparedQuery.values)
     res.send({ ok: true, id: id, rev: '0-1' })
