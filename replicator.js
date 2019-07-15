@@ -31,25 +31,25 @@ const lookForNewReplications = async () => {
       debug('No new replication jobs')
     } else {
       debug(data.rows.length + ' new replication jobs')
-      for(var i = 0; i < data.rows.length; i++) {
+      for (var i = 0; i < data.rows.length; i++) {
         const row = data.rows[i]
         const doc = docutils.processResultDoc(row)
         startReplication(doc)
       }
     }
-  } catch(e) {
+  } catch (e) {
     debug(e)
   }
 }
 
 // start replication job
 const startReplication = async (job) => {
-  const shortJobId =job._id.substr(0, 6) + '..'
+  const shortJobId = job._id.substr(0, 6) + '..'
   debug('Starting replication job ' + shortJobId)
   job.state = job._i1 = 'running'
   try {
     await writeDoc('_replicator', job._id, job)
-  } catch(e) {
+  } catch (e) {
     debug(e)
   }
 }
@@ -63,7 +63,6 @@ const main = async () => {
     // check for new replications every 30 seconds
     setInterval(lookForNewReplications, 30 * 1000)
     await lookForNewReplications()
-
   } catch (e) {
     debug(e)
     console.error('Cannot connect to PostgreSQL')

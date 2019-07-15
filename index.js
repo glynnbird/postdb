@@ -287,7 +287,7 @@ app.get('/:db/_changes', async (req, res) => {
       const thisobj = {
         changes: [{ rev: '0-1' }],
         id: row.id,
-        seq: row.seq
+        seq: row.seq.toString()
       }
       if (row.deleted) {
         thisobj.deleted = true
@@ -295,7 +295,7 @@ app.get('/:db/_changes', async (req, res) => {
       if (includeDocs) {
         thisobj.doc = docutils.processResultDoc(row)
       }
-      lastSeq = row.seq
+      lastSeq = row.seq.toString()
       obj.results.push(thisobj)
     }
     obj.last_seq = lastSeq
