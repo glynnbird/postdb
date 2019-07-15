@@ -1,16 +1,8 @@
 // modules and libraries
-const utils = require('./lib/utils.js')
 const docutils = require('./lib/docutils.js')
-const tableutils = require('./lib/tableutils.js')
-const queryutils = require('./lib/queryutils.js')
 const replutils = require('./lib/replicatorutils.js')
 const pkg = require('./package.json')
 const debug = require('debug')(pkg.name)
-const morgan = require('morgan')
-const url = require('url')
-
-// incoming environment variables vs defaults
-const defaults = require('./lib/defaults.js')
 
 // PostgreSQL Client
 const { Client } = require('pg')
