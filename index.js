@@ -15,6 +15,9 @@ const url = require('url')
 // incoming environment variables vs defaults
 const defaults = require('./lib/defaults.js')
 
+// static 
+app.use(express.static('static'))
+
 // JSON parsing middleware
 const bodyParser = require('body-parser')
 app.use(bodyParser.json())
@@ -109,29 +112,6 @@ app.delete('/_replicator/:id', async (req, res) => {
     doc.state = doc._i1 = 'cancelled'
     await writeDoc('_replicator', id, doc)
     res.send({ ok: true, id: id, rev: '0-1' })
-  } catch (e) {
-    debug(e)
-    sendError(res, 404, 'Document not found')
-  }
-})
-
-// GET /_replicator/id
-app.get('/_replicator/:id', async (req, res) => {
-  const id = req.params.id
-  if (!utils.validID(id)) {
-    return sendError(res, 400, 'Invalid id')
-  }
-  try {
-    // read the document
-    const sql = docutils.prepareGetSQL('_replicator')
-    debug(sql, [id])
-    const data = await client.query(sql, [id])
-    console.log(data.rows)
-    if (data.rows.length === 0) {
-      throw (new Error('missing document'))
-    }
-    const doc = docutils.processResultDoc(data.rows[0])
-    res.send(doc)
   } catch (e) {
     debug(e)
     sendError(res, 404, 'Document not found')
