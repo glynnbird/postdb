@@ -74,7 +74,7 @@ app.post('/_replicator', async (req, res) => {
   doc.continuous = (doc.continuous === true)
   doc.create_target = (doc.create_target === true)
   doc.state = 'new'
-  doc.seq = 0
+  doc.seq = '0'
   doc.doc_count = 0
   doc._i1 = doc.state
   const id = utils.hash(JSON.stringify({ source: doc.source, target: doc.target }))
