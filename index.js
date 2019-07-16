@@ -15,7 +15,7 @@ const url = require('url')
 // incoming environment variables vs defaults
 const defaults = require('./lib/defaults.js')
 
-// static 
+// static
 app.use(express.static('static'))
 
 // JSON parsing middleware
@@ -58,10 +58,39 @@ const writeDoc = async (databaseName, id, doc) => {
   return client.query(preparedQuery.sql, preparedQuery.values)
 }
 
+// POST /_session
+// session endpoint
+app.post('/_session', async (req, res) => {
+  res.send({ ok: true, name: 'admin', roles: ['admin'] })
+})
+
 // POST /_replicator
 // start a replication
 app.post('/_replicator', async (req, res) => {
   const doc = req.body || {}
+
+  // if the source isn't a string then we need to construct
+  // a string URL from the object
+  if (typeof doc.source === 'object') {
+    const authStr = doc.source.headers.Authorization.replace(/^Basic /, '')
+    const usernamePassword = Buffer.from(authStr, 'base64').toString()
+    const bits = usernamePassword.split(':')
+    const username = bits[0]
+    const password = bits[1]
+    const u = new URL(doc.source.url)
+    u.username = username
+    u.password = password
+    doc.source = u.toString()
+  }
+
+  // if the target isn't a string, we need to construct a string
+  // target database from the URL
+  if (typeof doc.target === 'object') {
+    const u = new URL(doc.target.url)
+    doc.target = u.pathname.replace(/^\//, '')
+  }
+
+  // bad request without a source & target
   if (!doc.source || !doc.target) {
     return sendError(res, 400, 'source and target must be supplied')
   }

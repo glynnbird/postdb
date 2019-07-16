@@ -1,7 +1,7 @@
 
 # PostDB
 
-*PostDB* is proof-of-concept database that exposes a CouchDB-like API but which is backed by a PostgreSQL database. It supports:
+*PostDB* is proof-of-concept database that exposes a Apache CouchDB-like API but which is backed by a PostgreSQL database. It supports:
 
 - Create/Delete database API
 - Insert/Update/Delete document API, without requiring revision tokens.
@@ -266,6 +266,17 @@ Note the additional fields:
 - `state` - the state of the replication `new`/`running`/`completed`/`error`
 - `doc_count` - the number of documents written so far.
 
+## Dashboard
+
+This project doesn't come with a dashboard but you can run *PostDB* and Apache CouchDB's [Fauxton](https://github.com/apache/couchdb-fauxton) dashboard alongside:
+
+```sh
+npm install -g fauxton
+fauxton
+```
+
+The dashboard works for most things except Mango search.
+
 ## Configuring
 
 The application is configured using environment variables
@@ -292,3 +303,38 @@ See debugging messages by setting the `DEBUG` environment variable:
 
 ```sh
 DEBUG=postdb npm run start
+```
+
+## How does PostDB work
+
+PostDB is a simple Express Node.js app that talks to a PostgreSQL database. Each PostDB _database_ becomes one PostgreSQL _table_ with the following schema:
+
+```
+postgres# \d kylie
+                        Table "public.kylie"
+  Column   |          Type          | Collation | Nullable | Default 
+-----------+------------------------+-----------+----------+---------
+ id        | character varying(255) |           | not null | 
+ json      | json                   |           | not null | 
+ seq       | integer                |           |          | 
+ deleted   | boolean                |           | not null | 
+ clusterid | character varying(255) |           | not null | 
+ i1        | character varying(100) |           |          | 
+ i2        | character varying(100) |           |          | 
+ i3        | character varying(100) |           |          | 
+Indexes:
+    "kylie_pkey" PRIMARY KEY, btree (id)
+    "kylie__seq" btree (seq)
+    "kylie_i1" btree (i1)
+    "kylie_i2" btree (i2)
+    "kylie_i3" btree (i3)
+```
+
+- `id` - the document's unique identifier. Becomes the document's `_id` field.
+- `json` - the document's body except the `_id` and `_rev` fields.
+- `seq` - the sequence number. Each insert, update or delete to the database will set `seq` to one greater than the maximum `seq` in the database.
+- `deleted` - when a document is deleted, the row remains but the `deleted` flag is set, the `seq` is updated, the `json` field is wiped out and the index fields are cleared.
+- `clusterid` - identifies which PostDB cluster made the write. This prevents changes feeds containing writes you don't care about.
+- `i1`/`i2`/`i3` - one field per index. The user sets fields `_i1`/`_i2`/`_i3` in the document to indicate that data is to be indexed. They end up in these fields where they are indexerd with a btree.
+
+The `_replicator` databases uses the same schema. A second Node.js process (replicator.js) services replication jobs.
