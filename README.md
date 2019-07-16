@@ -1,15 +1,16 @@
 
 # PostDB
 
-*PostDB* is proof-of-concept database that exposes a CouchDB-like API but which is backed by a PostgreSQL database. It supports:
+*PostDB* is proof-of-concept database that exposes a Apache CouchDB-like API but which is backed by a PostgreSQL database. It supports:
 
 - Create/Delete database API
 - Insert/Update/Delete document API, without requiring revision tokens.
 - Bulk Insert/Update/Delete API.
 - Fetch all documents or a range using the primary index.
 - Fetch documents by key or range of keys using one of three (by default) secondary indexes.
+- "Pull" replication i.e. fetching data from a remote URL.
 
-It does not implement CouchDB's MVCC, Design Documents, attachments, replication, MapReduce, "Mango" search or any other CouchDB feature.
+It does not implement CouchDB's MVCC, Design Documents, attachments, MapReduce, "Mango" search or any other CouchDB feature.
 
 It does however provide a "consistent" data store where the documents and secondary indexes are in lock-step. Documents are limited to 100KB in size.
 
@@ -225,6 +226,70 @@ Parameters:
 - `limit` - the number of documents to return   (default: 100)
 - `offset` - the offset into the result set (default: 0)
 
+## Replication
+
+Only "pull" replication is supported i.e. fetching data from a remote URL. A replication is started by writing a data to the `_replicator` database:
+
+```sh
+$ curl -X POST \
+      -d '{"source":"https://U:P@host.cloudant.com/cities","target":"cities"}' \
+      http://localhost:5984/_replicator
+{"ok":true,"id":"73106768769860315949fe301a75c18a","rev":"0-1"}
+```
+
+Parameters for a _replicator document:
+
+- `source` - the source database (must be a URL)
+- `target` - the target databasr (must be a local database name)
+- `since` - the sequence token to start replication from (default `0`)
+- `continuous` - if true, replicates from the source forever (default `false`)
+- `create_target` - if true, a new target database is created (default `false`)
+
+Replications are processed by a second process which is run with:
+
+```sh
+$ npm run replicator
+```
+
+Only one such process should run. It polls for new replcation jobs and sets them off. It will
+resume interrupted replications on restart.
+
+You can check on the status of a replication by pulling the `_replicator` document you created:
+
+```sh
+$ curl http://localhost:5984/_replicator/73106768769860315949fe301a75c18a
+{
+  "source": "https://U:P@host.cloudant.com/cities",
+  "target": "cities",
+  "continuous": false,
+  "create_target": false,
+  "state": "running",
+  "seq": "5000-g1AAAAf7eJy9lM9NwzAUh",
+  "doc_count": 5000,
+  "_id": "73106768769860315949fe301a75c18a",
+  "_rev": "0-1",
+  "_i1": "running",
+  "_i2": "",
+  "_i3": ""
+}
+```
+
+Note the additional fields:
+
+- `state` - the state of the replication `new`/`running`/`completed`/`error`
+- `doc_count` - the number of documents written so far.
+
+## Dashboard
+
+This project doesn't come with a dashboard but you can run *PostDB* and Apache CouchDB's [Fauxton](https://github.com/apache/couchdb-fauxton) dashboard alongside:
+
+```sh
+npm install -g fauxton
+fauxton
+```
+
+The dashboard works for most things except Mango search.
+
 ## Configuring
 
 The application is configured using environment variables
@@ -235,6 +300,7 @@ The application is configured using environment variables
 - `USERNAME`/`PASSWORD` - to insist on authenticated connections, both `USERNAME`/`PASSWORD` must be set and then the server will require them to be supplied in every request using HTTP Basic Authentication.
 - `DEBUG` - when set to `postdb` the PostDB console will contain extra debugging information.
 - `LOGGING` - the logging format. One of `combined`/`common`/`dev`/`short`/`tiny`/`none`. Default `dev`.
+- `CLUSTERID` - the id of the PostDB cluster. Used to identify the origin of individual document writes, so that the changes feed needn't include your own cluster's changes. Default `''`.
 
 To use a custom PostgreSQL database rather than the default, set the following environment variables:
 
@@ -250,3 +316,38 @@ See debugging messages by setting the `DEBUG` environment variable:
 
 ```sh
 DEBUG=postdb npm run start
+```
+
+## How does PostDB work
+
+PostDB is a simple Express Node.js app that talks to a PostgreSQL database. Each PostDB _database_ becomes one PostgreSQL _table_ with the following schema:
+
+```
+postgres# \d kylie
+                        Table "public.kylie"
+  Column   |          Type          | Collation | Nullable | Default 
+-----------+------------------------+-----------+----------+---------
+ id        | character varying(255) |           | not null | 
+ json      | json                   |           | not null | 
+ seq       | integer                |           |          | 
+ deleted   | boolean                |           | not null | 
+ clusterid | character varying(255) |           | not null | 
+ i1        | character varying(100) |           |          | 
+ i2        | character varying(100) |           |          | 
+ i3        | character varying(100) |           |          | 
+Indexes:
+    "kylie_pkey" PRIMARY KEY, btree (id)
+    "kylie__seq" btree (seq)
+    "kylie_i1" btree (i1)
+    "kylie_i2" btree (i2)
+    "kylie_i3" btree (i3)
+```
+
+- `id` - the document's unique identifier. Becomes the document's `_id` field.
+- `json` - the document's body except the `_id` and `_rev` fields.
+- `seq` - the sequence number. Each insert, update or delete to the database will set `seq` to one greater than the maximum `seq` in the database.
+- `deleted` - when a document is deleted, the row remains but the `deleted` flag is set, the `seq` is updated, the `json` field is wiped out and the index fields are cleared.
+- `clusterid` - identifies which PostDB cluster made the write. This prevents changes feeds containing writes you don't care about.
+- `i1`/`i2`/`i3` - one field per index. The user sets fields `_i1`/`_i2`/`_i3` in the document to indicate that data is to be indexed. They end up in these fields where they are indexerd with a btree.
+
+The `_replicator` databases uses the same schema. A second Node.js process (replicator.js) services replication jobs.
