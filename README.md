@@ -31,17 +31,12 @@ The application will connect to local PostgreSQL instance and start serving out 
 
 ## Running in Docker
 
-Build the image
+Run _PostDB_, the _Replicator_ and _PostgeSQL_ in Docker Compose:
 
 ```sh
-docker build -t postdb .
+docker-compose -f docker-compose.yml up
 ```
 
-Run:
-
-```sh
-docker run --env DEBUG=postdb postdb
-```
 ## API Reference
 
 ### Create Database - PUT /db

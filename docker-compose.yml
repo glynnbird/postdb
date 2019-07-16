@@ -2,13 +2,35 @@ version: '3'
 
 services:
   web:
-    build: .
+    build: 
+      context: .
+      dockerfile: postdb.Dockerfile
     ports:
-     - 5984:5984
+      - 5984:5984
+    environment:
+      - PGHOST=db
+      - PGPASSWORD=admin
+      - PGUSER=admin
+      - PGPORT=5432
     depends_on:
-    - database
-  database:
+      - db
+  replicator:
+    build: 
+      context: .
+      dockerfile: replicator.Dockerfile
+    environment:
+      - PGHOST=db
+      - PGPASSWORD=admin
+      - PGUSER=admin
+      - PGPORT=5432
+    depends_on:
+      - db   
+      - web   
+  db:
     image: postgres
     restart: always
+    environment:
+      - POSTGRES_PASSWORD=admin
+      - POSTGRES_USER=admin
     ports:
-     - 5432:5432
+      - 5432:5432
