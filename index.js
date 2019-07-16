@@ -26,6 +26,7 @@ app.use(bodyParser.json())
 // compression middleware
 const compression = require('compression')
 app.use(compression())
+
 // Logging middleware
 if (defaults.logging !== 'none') {
   app.use(morgan(defaults.logging))
