@@ -15,13 +15,17 @@ const url = require('url')
 // incoming environment variables vs defaults
 const defaults = require('./lib/defaults.js')
 
-// static
-app.use(express.static('static'))
+// pretty print
+// app.set('json spaces', 2)
+app.set('x-powered-by', false)
 
 // JSON parsing middleware
 const bodyParser = require('body-parser')
 app.use(bodyParser.json())
 
+// compression middleware
+const compression = require('compression')
+app.use(compression())
 // Logging middleware
 if (defaults.logging !== 'none') {
   app.use(morgan(defaults.logging))
