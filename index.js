@@ -12,6 +12,9 @@ const kuuid = require('kuuid')
 const morgan = require('morgan')
 const url = require('url')
 
+// fixed rev value - no MVCC here
+const fixrev = '0-1'
+
 // incoming environment variables vs defaults
 const defaults = require('./lib/defaults.js')
 
@@ -119,7 +122,7 @@ app.post('/_replicator', async (req, res) => {
 
   try {
     await writeDoc('_replicator', id, doc)
-    res.send({ ok: true, id: id, rev: '0-1' })
+    res.send({ ok: true, id: id, rev: fixrev })
   } catch (e) {
     debug(e)
     sendError(res, 404, 'Could not write to _replicator')
@@ -145,7 +148,7 @@ app.delete('/_replicator/:id', async (req, res) => {
     // set it to cancellled and write it back
     doc.state = doc._i1 = 'cancelled'
     await writeDoc('_replicator', id, doc)
-    res.send({ ok: true, id: id, rev: '0-1' })
+    res.send({ ok: true, id: id, rev: fixrev })
   } catch (e) {
     debug(e)
     sendError(res, 404, 'Document not found')
@@ -197,7 +200,7 @@ app.post('/:db/_bulk_docs', async (req, res) => {
     debug(preparedQuery.sql, preparedQuery.values)
     try {
       await client.query(preparedQuery.sql, preparedQuery.values)
-      response.push({ ok: true, id: id, rev: '0-1' })
+      response.push({ ok: true, id: id, rev: fixrev })
     } catch (e) {
       response.push({ ok: false, id: id, error: 'Dailed to write document' })
     }
@@ -301,7 +304,7 @@ app.get('/:db/_changes', async (req, res) => {
     for (var i in data.rows) {
       const row = data.rows[i]
       const thisobj = {
-        changes: [{ rev: '0-1' }],
+        changes: [{ rev: fixrev }],
         id: row.id,
         seq: row.seq.toString(),
         clusterid: row.clusterid
@@ -414,8 +417,8 @@ app.get('/:db/_all_docs', async (req, res) => {
       const row = data.rows[i]
       const doc = row.json ? row.json : {}
       doc._id = row.id
-      doc._rev = '0-1'
-      const thisobj = { id: row.id, key: row.id, value: { rev: '0-1' } }
+      doc._rev = fixrev
+      const thisobj = { id: row.id, key: row.id, value: { rev: fixrev } }
       if (includeDocs) {
         thisobj.doc = docutils.processResultDoc(row)
       }
@@ -469,7 +472,7 @@ app.put('/:db/:id', readOnlyMiddleware, async (req, res) => {
   }
   try {
     await writeDoc(databaseName, id, doc)
-    res.status(201).send({ ok: true, id: id, rev: '0-1' })
+    res.status(201).send({ ok: true, id: id, rev: fixrev })
   } catch (e) {
     debug(e)
     sendError(res, 404, 'Could not write document ' + id)
@@ -491,7 +494,7 @@ app.delete('/:db/:id', readOnlyMiddleware, async (req, res) => {
     const preparedQuery = docutils.prepareDeleteSQL(databaseName, id, defaults.clusterid)
     debug(preparedQuery.sql, preparedQuery.values)
     await client.query(preparedQuery.sql, preparedQuery.values)
-    res.send({ ok: true, id: id, rev: '0-1' })
+    res.send({ ok: true, id: id, rev: fixrev })
   } catch (e) {
     debug(e)
     sendError(res, 404, 'Could not delete document ' + databaseName + '/' + id)
@@ -509,7 +512,7 @@ app.post('/:db', readOnlyMiddleware, async (req, res) => {
   const doc = req.body
   try {
     await writeDoc(databaseName, id, doc)
-    res.status(201).send({ ok: true, id: id, rev: '0-1' })
+    res.status(201).send({ ok: true, id: id, rev: fixrev })
   } catch (e) {
     debug(e)
     sendError(res, 400, 'Could not save document')
