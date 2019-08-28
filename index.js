@@ -24,7 +24,7 @@ app.set('x-powered-by', false)
 
 // JSON parsing middleware
 const bodyParser = require('body-parser')
-app.use(bodyParser.json())
+app.use(bodyParser.json({ limit: '10mb' }))
 
 // compression middleware
 const compression = require('compression')
