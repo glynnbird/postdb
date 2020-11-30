@@ -26,18 +26,18 @@
   "homepage": "https://github.com/glynnbird/postdb#readme",
   "dependencies": {
     "body-parser": "^1.19.0",
-    "changesreader": "^1.2.1",
+    "changesreader": "^2.1.0",
     "compression": "^1.7.4",
-    "debug": "^4.1.1",
+    "debug": "^4.3.1",
     "express": "^4.17.1",
     "express-basic-auth": "^1.2.0",
-    "kuuid": "^0.5.0",
-    "morgan": "^1.9.1",
-    "nano": "^8.1.0",
-    "pg": "^7.11.0"
+    "kuuid": "^0.6.0",
+    "morgan": "^1.10.0",
+    "nano": "^9.0.1",
+    "pg": "^8.5.1"
   },
   "devDependencies": {
-    "standard": "^13.0.0"
+    "standard": "^16.0.3"
   },
   "bin": {
     "postdb": "bin/postdb_api.bin.js",
