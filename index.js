@@ -174,7 +174,7 @@ app.post('/:db/_bulk_docs', async (req, res) => {
   const response = []
 
   // process each document
-  for (var i in docs) {
+  for (const i in docs) {
     const doc = docs[i]
     let preparedQuery, id
 
@@ -219,7 +219,7 @@ app.get('/_all_dbs', async (req, res) => {
     debug(sql)
     const data = await client.query(sql)
     const databases = []
-    for (var i in data.rows) {
+    for (const i in data.rows) {
       const row = data.rows[i]
       databases.push(row.table_name)
     }
@@ -240,7 +240,7 @@ app.get('/_uuids', (req, res) => {
   const obj = {
     uuids: []
   }
-  for (var i = 0; i < count; i++) {
+  for (let i = 0; i < count; i++) {
     obj.uuids.push(kuuid.id())
   }
   res.send(obj)
@@ -255,7 +255,7 @@ app.post('/:db/_purge', async (req, res) => {
   }
   try {
     const sql = docutils.preparePurgeTransaction(databaseName, Object.keys(req.body))
-    for (var i in sql) {
+    for (const i in sql) {
       const s = sql[i]
       debug(s.sql, s.values)
       await client.query(s.sql, s.values)
@@ -301,7 +301,7 @@ app.get('/:db/_changes', async (req, res) => {
       results: []
     }
     let lastSeq = since
-    for (var i in data.rows) {
+    for (const i in data.rows) {
       const row = data.rows[i]
       const thisobj = {
         changes: [{ rev: fixrev }],
@@ -366,7 +366,7 @@ app.post('/:db/_query', async (req, res) => {
     const obj = {
       docs: []
     }
-    for (var i in data.rows) {
+    for (const i in data.rows) {
       const row = data.rows[i]
       const doc = docutils.processResultDoc(row)
       obj.docs.push(doc)
@@ -413,7 +413,7 @@ app.get('/:db/_all_docs', async (req, res) => {
     const obj = {
       rows: []
     }
-    for (var i in data.rows) {
+    for (const i in data.rows) {
       const row = data.rows[i]
       const doc = row.json ? row.json : {}
       doc._id = row.id
@@ -529,7 +529,7 @@ app.put('/:db', readOnlyMiddleware, async (req, res) => {
   debug('Creating database - ' + databaseName)
   try {
     const sql = tableutils.prepareCreateTableTransaction(databaseName)
-    for (var i = 0; i < sql.length; i++) {
+    for (let i = 0; i < sql.length; i++) {
       debug(sql[i])
       await client.query(sql[i])
     }
@@ -624,7 +624,7 @@ const main = async () => {
     try {
       // create _replicator database
       const sql = tableutils.prepareCreateTableTransaction('_replicator')
-      for (var i = 0; i < sql.length; i++) {
+      for (let i = 0; i < sql.length; i++) {
         await client.query(sql[i])
       }
     } catch (e) {

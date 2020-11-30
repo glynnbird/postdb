@@ -32,8 +32,9 @@ const lookForNewReplications = async (firstTime) => {
   try {
     const data = await client.query(sql)
     if (data.rows.length === 0) {
+      // null statement
     } else {
-      for (var i = 0; i < data.rows.length; i++) {
+      for (let i = 0; i < data.rows.length; i++) {
         const row = data.rows[i]
         const doc = docutils.processResultDoc(row)
         startReplication(doc)
@@ -69,7 +70,7 @@ const startReplication = async (job) => {
     // if the target database needs creating
     if (job.create_target) {
       const sql = tableutils.prepareCreateTableTransaction(job.target)
-      for (var i = 0; i < sql.length; i++) {
+      for (let i = 0; i < sql.length; i++) {
         await client.query(sql[i])
       }
     }
@@ -83,8 +84,8 @@ const startReplication = async (job) => {
   const sourceUrl = parsedUrl.href.replace(parsedUrl.pathname, '')
   const nano = Nano(sourceUrl)
   const db = parsedUrl.pathname.replace(/^\//, '')
-  const ChangesReader = require('changesreader')
-  const changesReader = new ChangesReader(db, nano.request)
+  const nanodb = nano.db.use(db)
+  const changesReader = nanodb.changesReader
 
   // run replication
   let worker
@@ -113,8 +114,9 @@ const startReplication = async (job) => {
       try {
         const write = async () => {
           let docCount = 0
+          changesReader.pause()
           await client.query('BEGIN')
-          for (var i = 0; i < b.length; i++) {
+          for (let i = 0; i < b.length; i++) {
             const clusterid = b[i].clusterid || defaults.clusterid
             if (b.deleted) {
               const sql = docutils.prepareDeleteSQL(job.target, b[i].id, clusterid)
@@ -131,7 +133,7 @@ const startReplication = async (job) => {
           await writeDoc('_replicator', job._id, job, defaults.clusterid)
           await client.query('COMMIT')
         }
-        write().then(callback)
+        write().then(changesReader.resume)
       } catch (e) {
         client.query('ROLLBACK')
         debug(e)
